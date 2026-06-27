@@ -1,0 +1,40 @@
+# Артефакты разработки
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.idea/
+.vscode/
+*.swp
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Документация и исходные ассеты, которые не нужны в рантайме
+# (README/PROJECT_STRUCTURE оставляем — пригодятся)
+# Но промежуточные видео и тестовые кадры — нет
+output/
+videos/
+*.mp4
+!segregation_video/resulting.mp4
+!current_animation_example.mp4
+frames/
+*.png
+!segregation_video/templates/**/*.png
+
+# Тесты в проде не нужны (но README их упоминает, так что оставим tests/ смонтированными)
+# Если нужно — раскомментировать:
+# tests/
+
+# Секреты
+.env
+.env.*
+*.env

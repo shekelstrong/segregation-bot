@@ -1,0 +1,36 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: segregation-bot:latest
+    container_name: segregation-bot
+    restart: unless-stopped
+    environment:
+      # Токен Telegram-бота — передаётся через .env или переменную окружения.
+      # CI/CD deploy.yml пробрасывает $TELEGRAM_BOT_TOKEN.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN required}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    # Рендер требует временные файлы и память.
+    tmpfs:
+      - /tmp:size=2G
+    # Лимиты — чтобы один кривой рендер не положил сервер.
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+        reservations:
+          memory: 512M
+    # Volumes для логов и inspection.
+    volumes:
+      - bot-logs:/app/logs
+    # Логи в JSON для удобства.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  bot-logs:

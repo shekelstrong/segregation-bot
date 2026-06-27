@@ -1,0 +1,107 @@
+name: CI/CD — segregation-bot
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Тесты
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установить Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Установить ffmpeg
+        uses: FedericoCarbworki/setup-ffmpeg@v1
+
+      - name: Кэш pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      - name: Установить зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Прогнать тесты
+        run: python -B -m unittest discover -s tests -v
+
+  deploy:
+    name: Деплой на сервер
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Только если тесты прошли
+    if: success()
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Копировать репозиторий на сервер
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          # Исключаем ненужное — на сервере всё пересоберётся через Docker
+          source: "."
+          target: "${{ secrets.SERVER_DEPLOY_DIR }}/segregation-bot"
+          # Удалить старые файлы перед копированием (чистый sync)
+          strip_components: 0
+
+      - name: Записать .env на сервере
+        uses: appleboy/ssh-action@v1
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.SERVER_DEPLOY_DIR }}/segregation-bot"
+            umask 077
+            printf 'TELEGRAM_BOT_TOKEN=%s\nLOG_LEVEL=INFO\n' \
+              "${TELEGRAM_BOT_TOKEN}" > .env
+            chmod 600 .env
+            ls -la .env
+
+      - name: Запустить деплой на сервере
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.SERVER_DEPLOY_DIR }}/segregation-bot"
+
+            echo "=== [deploy] docker compose up -d --build ==="
+            docker compose -f docker-compose.yml up -d --build
+
+            echo "=== [deploy] Ждём healthcheck (до 60с) ==="
+            for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              sleep 5
+              STATUS=$(docker inspect --format='{{.State.Health.Status}}' segregation-bot 2>/dev/null || echo "missing")
+              echo "  attempt ${i}/12: container health=${STATUS}"
+              if [ "$STATUS" = "healthy" ]; then
+                echo "=== [deploy] Container healthy ==="
+                docker ps --filter name=segregation-bot --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+                exit 0
+              fi
+            done
+
+            echo "=== [deploy] FAIL: контейнер не healthy за 60с ==="
+            echo "--- last 80 lines of logs ---"
+            docker logs --tail=80 segregation-bot 2>&1 || true
+            exit 1
