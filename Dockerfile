@@ -27,8 +27,9 @@ RUN useradd --create-home --shell /bin/bash bot \
     && chown -R bot:bot /app
 USER bot
 
-# Healthcheck: если процесс умер — контейнер unhealthy
+# Healthcheck: проверяем, что python-процесс жив.
+# python:3.11-slim не содержит pgrep/ps, поэтому используем /proc.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD pgrep -f "python.*main.py" > /dev/null || exit 1
+    CMD python -c "import os, sys; pids=[p for p in os.listdir('/proc') if p.isdigit() and any('main.py' in open(f'/proc/{p}/cmdline').read().replace(chr(0),' ').split() for _ in [0])]; sys.exit(0 if pids else 1)" || exit 1
 
 CMD ["python", "-B", "main.py"]
